@@ -1,0 +1,7 @@
+build/
+# Memory dumps of the game image are never committed (game binary, ~95 MB).
+*.bin
+*.npy
+*.asm
+*.asi
+__pycache__/
