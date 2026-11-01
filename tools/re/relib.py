@@ -6,10 +6,23 @@ import capstone
 import numpy as np
 
 IMG = open('img.bin', 'rb').read()
-TEXT = (0x1000, 0x1000 + 0x2479400)
-RDATA = (0x247B000, 0x247B000 + 0x3EEE00)
-DATA = (0x286A000, 0x286A000 + 0x2741428)
-PDATA = (0x4FAC000, 0x4FAC000 + 0xD4400)
+
+
+def _sections():
+    """First section of each name, from the dump's own PE header (Enhanced and Legacy differ)."""
+    nt = struct.unpack_from('<I', IMG, 0x3C)[0]
+    count, optional = struct.unpack_from('<HxxxxxxxxxxxxH', IMG, nt + 6)
+    table = nt + 24 + optional
+    out = {}
+    for i in range(count):
+        name = IMG[table + 40 * i:table + 40 * i + 8].rstrip(b'\0').decode()
+        size, rva = struct.unpack_from('<II', IMG, table + 40 * i + 8)
+        out.setdefault(name, (rva, rva + size))
+    return out
+
+
+_SECTIONS = _sections()
+TEXT, RDATA, DATA, PDATA = (_SECTIONS[n] for n in ('.text', '.rdata', '.data', '.pdata'))
 
 _md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
 _md.detail = True

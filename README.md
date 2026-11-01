@@ -1,4 +1,4 @@
-# GTAV.FirstPersonExtended: first-person FOV up to 120° (GTA V Enhanced)
+# GTAV.FirstPersonExtended: first-person FOV up to 120° (GTA V Enhanced and Legacy)
 
 [Versão em português](README.pt-BR.md)
 
@@ -19,8 +19,8 @@ Unchanged: A or D alone with Shift, S with Shift (the original game already spri
 **Story mode only. Do not use in GTA Online.**
 
 ## Requirements
-- GTA V **Enhanced** (tested on 1.0.1158.16, Steam).
-- An ASI loader for Enhanced. Any one of these:
+- GTA V **Enhanced** (tested on 1.0.1158.16, Steam) or GTA V **Legacy** (tested on 1.0.3889.0, Steam). The mod detects the edition by itself; every feature works on both.
+- An ASI loader. On **Legacy**: `dinput8.dll` from Ultimate ASI Loader (the usual Legacy loader). On **Enhanced**, any one of these:
   - `xinput1_4.dll` from Ultimate ASI Loader (https://github.com/ThirteenAG/Ultimate-ASI-Loader, x64 build);
   - `xinput1_4.dll` that ships with ScriptHookV (dev-c.com);
   - `dsound.dll` that ships with OpenRPF.
@@ -30,7 +30,7 @@ Unchanged: A or D alone with Shift, S with Shift (the original game already spri
 - ScriptHookV is **not** required. The mod works with or without it.
 
 ## Install
-1. Copy the chosen loader to the game folder (where `GTA5_Enhanced.exe` is).
+1. Copy the chosen loader to the game folder (where `GTA5_Enhanced.exe` or, on Legacy, `GTA5.exe` is).
 2. Copy `GTAV.FirstPersonExtended.asi` to the same folder. `GTAV.FirstPersonExtended.ini` is optional (see below).
 3. Start the game in story mode and set the slider in Settings > Camera.
 
@@ -41,8 +41,13 @@ Next to the `.asi`. Without the file, or with invalid values (logged), the defau
 |---|---|---|---|
 | `MaxFov` | whole number, 60 to 140 | 120 | Top of the first-person FOV slider, in **horizontal** degrees. The minimum is the game's. |
 | `DiagonalSprint` | 0 or 1 | 1 | 1: W+A / W+D keep sprinting. 0: original game behavior. |
-| `UniversalFov` | 0 or 1 | 0 | 1: hip aim and aim down sights (also through the weapon's sights) use exactly the slider's FOV (at most `MaxFov`) instead of scaling their own. The phone and vehicle cameras stay proportional; sniper scopes stay native. With 1, while looking through the weapon's sight, the body and the weapon use the original FOV (like `PlayerFov`, for that camera only), so the sights stay aligned without the weapon shrinking. 0: every camera keeps its own FOV, widened in proportion. |
+| `UniversalFov` | 0 or 1 | 1 | 1: hip aim and aim down sights (also through the weapon's sights) use exactly the slider's FOV (at most `MaxFov`) instead of scaling their own. The phone and vehicle cameras stay proportional; sniper scopes stay native. With 1, while looking through the weapon's sight, the body and the weapon use the original FOV (like `PlayerFov`, for that camera only), so the sights stay aligned without the weapon shrinking; while reloading, the weapon leaves the sight and uses the world's FOV until it is back at the sight. 0: every camera keeps its own FOV, widened in proportion. |
 | `PlayerFov` | 0 or 1 | 0 | Experimental. 1: in first person, the character's body and the weapon in the hands use the FOV the same camera had in the original game (arms and weapon at their original size); the world keeps the slider's FOV. Not inside vehicles. The character's and the weapon's shadows do not follow the larger size (known effect). Needs the mod's FOV feature. 0: body and weapon use the world's FOV (except while looking through the sight with `UniversalFov=1`). |
+
+## Known issues
+These come from drawing the character's body and weapon with a different FOV than the world. They affect `PlayerFov=1` all the time, and `UniversalFov=1` while looking through the weapon's sight.
+- **Muzzle effects misaligned.** The muzzle flash and smoke are drawn with the world's FOV, so they do not line up with the weapon. With `PlayerFov` this is very visible when firing from the hip. With either option it shows when aiming down sights with weapons that have no suppressor and a modified sight.
+- **Shadows on the character and weapon misaligned**, most visibly on Enhanced with ray-traced shadows. Turning ray-traced shadows off is recommended when playing with these options.
 
 ## Uninstall
 Delete `GTAV.FirstPersonExtended.asi`, `GTAV.FirstPersonExtended.ini` and `GTAV.FirstPersonExtended.log` from the game folder. If you use no other `.asi` mods, delete the loader too. The mod does not change any original game file.

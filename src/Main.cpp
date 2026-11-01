@@ -14,12 +14,13 @@
 
 namespace {
 
-constexpr const char* kModVersion = "1.2.0";
+constexpr const char* kModVersion = "1.1.0";
 constexpr unsigned kDecryptTimeoutSeconds = 300;
 
 DWORD WINAPI Start(LPVOID) {
     Log::Open();
-    Log::Info("GTAV.FirstPersonExtended %s starting; game version %s", kModVersion, GameImage::Version().c_str());
+    Log::Info("GTAV.FirstPersonExtended %s starting; game version %s (%s)", kModVersion,
+              GameImage::Version().c_str(), GameImage::EditionName());
     if (!GameImage::WaitForDecryptedCode(kDecryptTimeoutSeconds)) {
         Log::Info("game code still encrypted after %us; all features disabled",
                   kDecryptTimeoutSeconds);
@@ -36,8 +37,7 @@ DWORD WINAPI Start(LPVOID) {
         Log::Info("player FOV: needs the FOV feature, which is disabled; stays original");
     else
         Log::Info("player FOV: disabled by GTAV.FirstPersonExtended.ini");
-    if (settings.diagonalSprint)
-        DiagonalSprint::Apply();
+    if (settings.diagonalSprint) DiagonalSprint::Apply();
     else
         Log::Info("diagonal sprint: disabled by GTAV.FirstPersonExtended.ini");
 #ifdef FPFIX_CAMERA_PROBE

@@ -45,7 +45,7 @@ Qualquer padrão faltando desliga só o recurso, e o resto do mod segue (regra d
 - **Escala (k, k, 1) no espaço da view:** equivale à projeção, mas distorce as normais (~34° de erro a 45°).
 - **Tirar a arma do lote instanciado:** desnecessário, porque o jogo já desenha a arma FPV pelo caminho privado.
 
-## 5. Resultado da implementação (1.2.0, testado pelo usuário)
+## 5. Resultado da implementação (testado pelo usuário)
 - Miras alinhadas e mãos na arma: **perfeito**. Terceira pessoa intacta. Celular funciona.
 - **Veículos:** as mãos saíam do volante e do guidão, então o FOV do jogador fica desligado em veículos (sinal da câmera de veículo do mod).
 - **Sombras:** desalinhadas (no chão e na arma), como previsto. Decisão do usuário: deixar como está e documentar.

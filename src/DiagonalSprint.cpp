@@ -32,6 +32,11 @@
 //    45 degrees) and never pass: no step sound and no noise circle on the minimap. While the
 //    player sprints with a lateral key (flag set by patch 3) the limit is raised to
 //    kSlideSpeedLimit. Other peds, other gaits and straight sprinting keep the game's limit.
+//
+// GTA V Legacy (1.0.3889.0) has the same four decisions, compiled differently: noLateralInput
+// lives in r15b, the stick's forward axis in xmm14 (lateral in xmm15), the "sprinting" bool in
+// dil, and the footstep test is `comiss xmm6,[r12]`. Each edition has its own patterns and
+// stubs; the behaviour of the patched game is the same.
 #include "DiagonalSprint.h"
 
 #include <windows.h>
@@ -132,6 +137,73 @@ constexpr Signature kPlayerTestSignatures[] = {
      "48 8B 8E ?? ?? ?? ?? 41 80 FF 07 75 ?? 83 FF 01 75 ?? 0F B6 81 ?? ?? ?? ?? 24 03 3C 02", 0},
 };
 
+// GTA V Legacy. Same decisions, same order; primary patterns include what follows the patched
+// bytes, fallbacks only the patched bytes and what follows them closely.
+// noLateralInput = !(leftActive || rightActive), into r15b, right after the three right-key tests.
+constexpr Signature kLegacyLateralVetoSignatures[] = {
+    {"diagonal_ramp_legacy_full",
+     "84 C0 74 02 B0 01 84 DB 75 09 84 C0 75 05 41 B7 01 EB 03 45 32 FF F3 0F 10 0D ?? ?? ?? ?? "
+     "48 8D 8F ?? ?? 00 00 4C 8B C6 E8",
+     6},
+    {"diagonal_ramp_legacy_tail", "84 DB 75 09 84 C0 75 05 41 B7 01 EB 03 45 32 FF F3 0F 10 0D", 0},
+};
+constexpr std::array<std::uint8_t, 16> kLegacyLateralVetoBytes = {
+    0x84, 0xDB, 0x75, 0x09, 0x84, 0xC0, 0x75, 0x05, 0x41, 0xB7, 0x01, 0xEB, 0x03, 0x45, 0x32, 0xFF};
+
+// `cmp byte [rax+disp32],r12b ; je forceForward`; forceForward is `movaps xmm15,xmm7 ;
+// movaps xmm14,xmm12` (lateral 0, forward 1), checked before patching.
+constexpr Signature kLegacyForcedForwardSignatures[] = {
+    {"diagonal_input_legacy_full",
+     "E8 ?? ?? ?? ?? 44 38 A0 ?? ?? 00 00 74 ?? 41 0F 28 CE 41 0F 28 C7 F3 41 0F 59 CE F3 41 0F "
+     "59 C7 F3 0F 58 C8 0F 2E CF 75 ?? 44 0F 28 FF 45 0F 28 F4 40 B7 01",
+     5},
+    {"diagonal_input_legacy_tail", "44 38 A0 ?? ?? 00 00 74 ?? 41 0F 28 CE 41 0F 28 C7 F3 41 0F 59 CE", 0},
+};
+constexpr std::array<std::uint8_t, 8> kLegacyForceForwardBytes = {0x44, 0x0F, 0x28, 0xFF, 0x45, 0x0F, 0x28, 0xF4};
+
+// `test dil,dil ; je skip` (long je) before the camera-heading override.
+#ifdef FPFIX_SIMULATE_SCAN_FAILURE
+constexpr Signature kLegacyHeadingOverrideSignatures[] = {
+    {"diagonal_heading_legacy_full (corrupted on purpose)", "DE AD BE EF DE AD BE EF DE AD BE EF", 0},
+    {"diagonal_heading_legacy_tail (corrupted on purpose)", "DE AD BE EF DE AD BE EF DE AD BE EF", 0},
+};
+#else
+constexpr Signature kLegacyHeadingOverrideSignatures[] = {
+    {"diagonal_heading_legacy_full",
+     "F3 45 0F 11 86 ?? ?? 00 00 40 84 FF 0F 84 ?? ?? 00 00 41 0F 28 CA 48 8B CB E8 ?? ?? ?? ?? "
+     "F3 45 0F 11 96 ?? ?? 00 00 E9",
+     9},
+    {"diagonal_heading_legacy_tail",
+     "40 84 FF 0F 84 ?? ?? 00 00 41 0F 28 CA 48 8B CB E8 ?? ?? ?? ?? F3 45 0F 11 96", 0},
+};
+#endif
+
+// The second of the three key tests (as on Enhanced), at its getControl call:
+//   mov edx,<control> ; mov rcx,rdi ; call getControl ; mov r8,rsi ; mov rcx,rax ;
+//   movss xmm1,[0.5] ; call isDown
+constexpr Signature kLegacyControlCheckSignatures[] = {
+    {"control_check_legacy_left",
+     "84 C0 75 ?? 8B D3 48 8B CF E8 ?? ?? ?? ?? 4C 8B C6 48 8B C8 F3 0F 10 0D ?? ?? ?? ?? E8 ?? ?? "
+     "?? ?? 84 C0 75",
+     9},
+    {"control_check_legacy_right",
+     "84 C0 75 ?? 41 8B D7 48 8B CF E8 ?? ?? ?? ?? 4C 8B C6 48 8B C8 F3 0F 10 0D ?? ?? ?? ?? E8 ?? "
+     "?? ?? ?? 84 C0 75",
+     10},
+};
+
+// Footstep detector: `comiss xmm6,[r12] ; jbe notAStep`, and its player test
+// `mov rdx,[rbx+ped] ; xor r8b,r8b ; mov al,[rdx+flags] ; test al,1 ; jne ; test al,2 ; je`.
+constexpr Signature kLegacyFootstepGateSignatures[] = {
+    {"diagonal_steps_legacy_full",
+     "41 0F 2F 34 24 0F 86 ?? ?? ?? ?? 8B C6 0B C1 89 84 AB ?? ?? ?? ?? 80 BB ?? ?? ?? ?? 00 74", 0},
+    {"diagonal_steps_legacy_tail", "8B C6 0B C1 89 84 AB ?? ?? ?? ?? 80 BB ?? ?? ?? ?? 00 74", -11},
+};
+constexpr Signature kLegacyPlayerTestSignatures[] = {
+    {"diagonal_steps_legacy_player",
+     "48 8B 93 ?? ?? ?? ?? 45 32 C0 8A 82 ?? ?? ?? ?? A8 01 75 ?? A8 02 74 ?? 41 83 FE 01", 0},
+};
+
 struct ControlCheck {
     const std::uint8_t* getControl;
     const std::uint8_t* table;
@@ -153,13 +225,14 @@ bool InCode(const std::uint8_t* p) {
     return p >= code.data() && p < code.data() + code.size();
 }
 
+const std::uint8_t* CallTarget(const std::uint8_t* call) {
+    std::int32_t rel;
+    std::memcpy(&rel, call + 1, 4);
+    return call + 5 + rel;
+}
+
 bool ReadControlCheck(const std::uint8_t* at, ControlCheck& out) {
-    auto callTarget = [](const std::uint8_t* call) {
-        std::int32_t rel;
-        std::memcpy(&rel, call + 1, 4);
-        return call + 5 + rel;
-    };
-    out = {callTarget(at + 8), Pattern::ResolveRip(at + 13, 3, 7), callTarget(at + 29)};
+    out = {CallTarget(at + 8), Pattern::ResolveRip(at + 13, 3, 7), CallTarget(at + 29)};
     return InCode(out.getControl) && InCode(out.isDown) && !InCode(out.table);
 }
 
@@ -235,6 +308,100 @@ bool PatchHeadingOverride(std::uint8_t* at, CodeBlock& block, SharedData& data) 
     return CodePatch::JumpToStub(at, std::span<const std::uint8_t>(at, kLength), stub);
 }
 
+// --- GTA V Legacy stubs (see the edition note at the top) ---
+
+// Helpers read from the control check at its getControl call (`at`): isDown and the 0.5
+// threshold the game passes to it.
+struct LegacyControlCheck {
+    const std::uint8_t* getControl;
+    const float* threshold;
+    const std::uint8_t* isDown;
+};
+
+bool ReadLegacyControlCheck(const std::uint8_t* at, LegacyControlCheck& out) {
+    out = {CallTarget(at), reinterpret_cast<const float*>(Pattern::ResolveRip(at + 11, 4, 8)), CallTarget(at + 19)};
+    return at[0] == 0xE8 && at[19] == 0xE8 && InCode(out.getControl) && InCode(out.isDown) &&
+           !InCode(reinterpret_cast<const std::uint8_t*>(out.threshold)) && *out.threshold == 0.5f;
+}
+
+// The 16-byte block that sets r15b = noLateralInput becomes: the same result, or, when a
+// lateral key is active, r15b = isDown(getControl(MOVE_UP_ONLY)). The game reads r15b three
+// times afterwards (ramp, run/sprint choice, sprint hold), so the flag itself must change, as on
+// Enhanced. rdi (input state) and rsi (the game's table) are set by the code before the block;
+// only volatile registers are clobbered, and the code after the block reloads them.
+bool PatchLateralVetoLegacy(std::uint8_t* at, const LegacyControlCheck& check, CodeBlock& block) {
+    constexpr int kLength = int(kLegacyLateralVetoBytes.size());
+    const auto* stub = block.Cursor();
+    block.Emit({0x84, 0xDB});                            // test bl,bl   (left active)
+    auto* lateral1 = block.EmitBranch({0x0F, 0x85});     // jne lateral
+    block.Emit({0x84, 0xC0});                            // test al,al   (right active)
+    auto* lateral2 = block.EmitBranch({0x0F, 0x85});     // jne lateral
+    block.Emit({0x41, 0xB7, 0x01});                      // mov r15b,1
+    block.EmitJmp(at + kLength);
+    block.Bind(lateral1);
+    block.Bind(lateral2);
+    block.Emit({0x48, 0x89, 0xF9});                      // mov rcx,rdi
+    block.Emit({0xBA, kMoveUpOnlyControl, 0, 0, 0});     // mov edx,MOVE_UP_ONLY
+    block.EmitCall(check.getControl);
+    block.Emit({0x48, 0x89, 0xC1});                      // mov rcx,rax
+    block.Emit({0xF3, 0x0F, 0x10, 0x0D});                // movss xmm1,[threshold]
+    block.EmitRip32(check.threshold);
+    block.Emit({0x49, 0x89, 0xF0});                      // mov r8,rsi
+    block.EmitCall(check.isDown);
+    block.Emit({0x44, 0x8A, 0xF8});                      // mov r15b,al
+    block.EmitJmp(at + kLength);
+    return CodePatch::JumpToStub(at, std::span<const std::uint8_t>(at, kLength), stub);
+}
+
+// `cmp byte [rax+disp32],r12b ; je forceForward` (9 bytes): also keep the input while the
+// stick points forward (xmm14 > 0).
+bool PatchForcedForwardLegacy(std::uint8_t* at, CodeBlock& block, SharedData& data) {
+    constexpr int kLength = 9;
+    const std::uint8_t* keep = at + kLength;
+    const auto* stub = block.Cursor();
+    block.Emit(std::span<const std::uint8_t>(at, 7));  // cmp byte [rax+disp32],r12b
+    block.Emit({0x0F, 0x85});                          // jne keep
+    block.EmitRip32(keep);
+    block.Emit({0x44, 0x0F, 0x2E, 0x35});              // ucomiss xmm14,[zero]
+    block.EmitRip32(&data.zero);
+    block.Emit({0x0F, 0x87});                          // ja keep
+    block.EmitRip32(keep);
+    block.EmitJmp(JumpTarget(at + 7));                 // forceForward
+    return CodePatch::JumpToStub(at, std::span<const std::uint8_t>(at, kLength), stub);
+}
+
+// `test dil,dil ; je skip` (3 + 6 bytes): skip the camera-heading override also while the stick
+// points forward, and keep diagonalSprinting (forward + lateral, xmm15 != 0) for the footsteps.
+bool PatchHeadingOverrideLegacy(std::uint8_t* at, CodeBlock& block, SharedData& data) {
+    constexpr int kLength = 9;
+    std::int32_t rel;
+    std::memcpy(&rel, at + 5, 4);
+    const std::uint8_t* skip = at + kLength + rel;
+    auto clearFlag = [&] {
+        block.Emit({0xC6, 0x05});                                  // mov byte [rip+flag],0
+        block.EmitRip32(&data.diagonalSprinting - 1);              // imm8 follows the disp32
+        block.Emit({0x00});
+    };
+    const auto* stub = block.Cursor();
+    block.Emit({0x40, 0x84, 0xFF});                                // test dil,dil
+    auto* notSprinting = block.EmitBranch({0x0F, 0x84});           // jz notSprinting
+    block.Emit({0x44, 0x0F, 0x2E, 0x35});                          // ucomiss xmm14,[zero]
+    block.EmitRip32(&data.zero);
+    auto* notForward = block.EmitBranch({0x0F, 0x86});             // jbe notForward
+    block.Emit({0x44, 0x0F, 0x2E, 0x3D});                          // ucomiss xmm15,[zero]
+    block.EmitRip32(&data.zero);
+    block.Emit({0x0F, 0x95, 0x05});                                // setne byte [rip+flag]
+    block.EmitRip32(&data.diagonalSprinting);
+    block.EmitJmp(skip);
+    block.Bind(notSprinting);
+    clearFlag();
+    block.EmitJmp(skip);
+    block.Bind(notForward);
+    clearFlag();
+    block.EmitJmp(at + kLength);                                   // run the override
+    return CodePatch::JumpToStub(at, std::span<const std::uint8_t>(at, kLength), stub);
+}
+
 // Offsets read from the footstep detector's own "is this ped the player" test:
 //   mov rcx,[helper+pedOffset] ... movzx eax,byte [rcx+flagsOffset] ; and al,3 ; cmp al,2
 struct PlayerTest {
@@ -281,6 +448,46 @@ bool PatchFootsteps(std::uint8_t* at, const PlayerTest& player, CodeBlock& block
     return CodePatch::JumpToStub(at, std::span<const std::uint8_t>(at, kLength), stub);
 }
 
+// Legacy player test: `mov rdx,[rbx+pedOffset] ; ... mov al,[rdx+flagsOffset] ; test al,1 ;
+// jne ; test al,2 ; je` -- the same (flags & 3) == 2 as on Enhanced.
+bool ReadPlayerTestLegacy(const std::uint8_t* at, PlayerTest& out) {
+    std::memcpy(&out.pedOffset, at + 3, 4);
+    std::memcpy(&out.flagsOffset, at + 12, 4);
+    return out.pedOffset > 0 && out.flagsOffset > 0;
+}
+
+// `comiss xmm6,[r12] ; jbe notAStep` (11 bytes): same logic as PatchFootsteps. rcx is live here
+// (the step flags), so the stub uses rax and xmm0, dead at both targets.
+bool PatchFootstepsLegacy(std::uint8_t* at, const PlayerTest& player, CodeBlock& block, SharedData& data) {
+    constexpr int kLength = 11;
+    std::int32_t rel;
+    std::memcpy(&rel, at + 7, 4);
+    const std::uint8_t* notAStep = at + kLength + rel;
+    const auto* stub = block.Cursor();
+    block.Emit({0x41, 0x0F, 0x2F, 0x34, 0x24});                    // comiss xmm6,[r12]
+    auto* isAStep = block.EmitBranch({0x0F, 0x87});                // ja isAStep
+    block.Emit({0x80, 0x3D});                                      // cmp byte [rip+flag],0
+    block.EmitRip32(&data.diagonalSprinting - 1);
+    block.Emit({0x00});
+    block.Emit({0x0F, 0x84});                                      // je notAStep
+    block.EmitRip32(notAStep);
+    block.Emit({0xF3, 0x0F, 0x10, 0x05});                          // movss xmm0,[rip+limit]
+    block.EmitRip32(&data.slideSpeedLimit);
+    block.Emit({0x41, 0x0F, 0x2F, 0x04, 0x24});                    // comiss xmm0,[r12]
+    block.Emit({0x0F, 0x86});                                      // jbe notAStep
+    block.EmitRip32(notAStep);
+    block.Emit({0x48, 0x8B, 0x83});                                // mov rax,[rbx+pedOffset]
+    block.Emit(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(&player.pedOffset), 4));
+    block.Emit({0x0F, 0xB6, 0x80});                                // movzx eax,byte [rax+flagsOffset]
+    block.Emit(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(&player.flagsOffset), 4));
+    block.Emit({0x83, 0xE0, 0x03, 0x83, 0xF8, 0x02});              // and eax,3 ; cmp eax,2
+    block.Emit({0x0F, 0x85});                                      // jne notAStep
+    block.EmitRip32(notAStep);
+    block.Bind(isAStep);
+    block.EmitJmp(at + kLength);
+    return CodePatch::JumpToStub(at, std::span<const std::uint8_t>(at, kLength), stub);
+}
+
 size_t ExeOffset(const std::uint8_t* p) {
     return size_t(p - reinterpret_cast<const std::uint8_t*>(GetModuleHandleW(nullptr)));
 }
@@ -288,31 +495,63 @@ size_t ExeOffset(const std::uint8_t* p) {
 // Footsteps while sprinting diagonally; independent of the sprint itself, so a failure here
 // only leaves that sprint silent, as in the game.
 void ApplyFootsteps(CodeBlock& block, SharedData& data) {
-    auto* gate = Find(kFootstepGateSignatures);
-    auto* playerTest = Find(kPlayerTestSignatures);
+    bool legacy = GameImage::IsLegacy();
+    auto* gate = legacy ? Find(kLegacyFootstepGateSignatures) : Find(kFootstepGateSignatures);
+    auto* playerTest = legacy ? Find(kLegacyPlayerTestSignatures) : Find(kPlayerTestSignatures);
     PlayerTest player{};
-    if (!gate || !playerTest || !ReadPlayerTest(playerTest, player) || gate[0] != 0x41 ||
-        gate[1] != 0x0F || gate[2] != 0x2E || gate[4] != 0x0F || gate[5] != 0x86) {
+    bool valid = gate && playerTest &&
+                 (legacy ? ReadPlayerTestLegacy(playerTest, player) && gate[0] == 0x41 && gate[1] == 0x0F &&
+                               gate[2] == 0x2F && gate[5] == 0x0F && gate[6] == 0x86
+                         : ReadPlayerTest(playerTest, player) && gate[0] == 0x41 && gate[1] == 0x0F &&
+                               gate[2] == 0x2E && gate[4] == 0x0F && gate[5] == 0x86);
+    if (!valid) {
         Log::Info("diagonal footsteps: site not found or not validated; sprint stays silent");
         return;
     }
-    bool ok = PatchFootsteps(gate, player, block, data);
+    bool ok = legacy ? PatchFootstepsLegacy(gate, player, block, data) : PatchFootsteps(gate, player, block, data);
     Log::Info("diagonal footsteps: %s at exe+0x%zx", ok ? "patched" : "NOT patched", ExeOffset(gate));
+}
+
+// The three sprint sites of one edition; null when not found or not validated.
+struct Sites {
+    std::uint8_t* veto;
+    std::uint8_t* input;
+    std::uint8_t* heading;
+};
+
+Sites FindEnhancedSites(ControlCheck& check) {
+    auto* veto = Find(kLateralVetoSignatures);
+    auto* input = Find(kForcedForwardSignatures);
+    auto* heading = Find(kHeadingOverrideSignatures);
+    auto* controlCheck = Find(kControlCheckSignatures);
+    bool valid = veto && input && heading && controlCheck && ReadControlCheck(controlCheck, check) &&
+                 std::memcmp(veto, kLateralVetoBytes.data(), kLateralVetoBytes.size()) == 0 &&
+                 input[0] == 0x80 && (input[1] & 0xF8) == 0xB8 && input[7] == 0x74 &&  // cmp byte [reg+disp32],imm8 ; je
+                 heading[0] == 0x40 && heading[1] == 0x84 && heading[2] == 0xF6 && heading[3] == 0x74;
+    return valid ? Sites{veto, input, heading} : Sites{};
+}
+
+Sites FindLegacySites(LegacyControlCheck& check) {
+    auto* veto = Find(kLegacyLateralVetoSignatures);
+    auto* input = Find(kLegacyForcedForwardSignatures);
+    auto* heading = Find(kLegacyHeadingOverrideSignatures);
+    auto* controlCheck = Find(kLegacyControlCheckSignatures);
+    bool valid = veto && input && heading && controlCheck && ReadLegacyControlCheck(controlCheck, check) &&
+                 std::memcmp(veto, kLegacyLateralVetoBytes.data(), kLegacyLateralVetoBytes.size()) == 0 &&
+                 input[0] == 0x44 && input[1] == 0x38 && input[2] == 0xA0 && input[7] == 0x74 &&
+                 std::memcmp(JumpTarget(input + 7), kLegacyForceForwardBytes.data(), kLegacyForceForwardBytes.size()) == 0 &&
+                 heading[0] == 0x40 && heading[1] == 0x84 && heading[2] == 0xFF && heading[3] == 0x0F && heading[4] == 0x84;
+    return valid ? Sites{veto, input, heading} : Sites{};
 }
 
 }  // namespace
 
 bool DiagonalSprint::Apply() {
-    auto* veto = Find(kLateralVetoSignatures);
-    auto* input = Find(kForcedForwardSignatures);
-    auto* heading = Find(kHeadingOverrideSignatures);
-    auto* controlCheck = Find(kControlCheckSignatures);
+    bool legacy = GameImage::IsLegacy();
     ControlCheck check{};
-    bool valid = veto && input && heading && controlCheck && ReadControlCheck(controlCheck, check) &&
-                 std::memcmp(veto, kLateralVetoBytes.data(), kLateralVetoBytes.size()) == 0 &&
-                 input[0] == 0x80 && (input[1] & 0xF8) == 0xB8 && input[7] == 0x74 &&  // cmp byte [reg+disp32],imm8 ; je
-                 heading[0] == 0x40 && heading[1] == 0x84 && heading[2] == 0xF6 && heading[3] == 0x74;
-    if (!valid) {
+    LegacyControlCheck legacyCheck{};
+    Sites sites = legacy ? FindLegacySites(legacyCheck) : FindEnhancedSites(check);
+    if (!sites.veto) {
         Log::Info("diagonal sprint: a site was not found or did not validate; stays original");
         return false;
     }
@@ -323,12 +562,13 @@ bool DiagonalSprint::Apply() {
     }
     auto& data = *static_cast<SharedData*>(block.Data());
     data.slideSpeedLimit = kSlideSpeedLimit;
-    bool rampOk = PatchLateralVeto(veto, check, block);
-    bool inputOk = PatchForcedForward(input, block);
-    bool headingOk = PatchHeadingOverride(heading, block, data);
+    bool rampOk = legacy ? PatchLateralVetoLegacy(sites.veto, legacyCheck, block) : PatchLateralVeto(sites.veto, check, block);
+    bool inputOk = legacy ? PatchForcedForwardLegacy(sites.input, block, data) : PatchForcedForward(sites.input, block);
+    bool headingOk = legacy ? PatchHeadingOverrideLegacy(sites.heading, block, data)
+                            : PatchHeadingOverride(sites.heading, block, data);
     Log::Info("diagonal sprint: ramp %s at exe+0x%zx, input %s at exe+0x%zx, heading %s at exe+0x%zx",
-              rampOk ? "patched" : "NOT patched", ExeOffset(veto), inputOk ? "patched" : "NOT patched",
-              ExeOffset(input), headingOk ? "patched" : "NOT patched", ExeOffset(heading));
+              rampOk ? "patched" : "NOT patched", ExeOffset(sites.veto), inputOk ? "patched" : "NOT patched",
+              ExeOffset(sites.input), headingOk ? "patched" : "NOT patched", ExeOffset(sites.heading));
     if (rampOk && inputOk && headingOk) ApplyFootsteps(block, data);
     return rampOk && inputOk && headingOk;
 }

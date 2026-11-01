@@ -72,6 +72,17 @@ std::string GameImage::Version() {
     return out;
 }
 
+bool GameImage::IsLegacy() {
+    wchar_t path[MAX_PATH]{};
+    GetModuleFileNameW(nullptr, path, MAX_PATH);
+    const wchar_t* name = path;
+    for (const wchar_t* p = path; *p; ++p)
+        if (*p == L'\\' || *p == L'/') name = p + 1;
+    return _wcsicmp(name, L"GTA5.exe") == 0;
+}
+
+const char* GameImage::EditionName() { return IsLegacy() ? "Legacy" : "Enhanced"; }
+
 std::span<const std::uint8_t> GameImage::Code() {
     const auto* base = ModuleBase();
     auto nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(

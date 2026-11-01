@@ -1,6 +1,6 @@
 # Padrões do GTAV.FirstPersonExtended
 
-Validado em **GTA V Enhanced 1.0.1158.16**. Cada ponto tem um padrão primário (`*_full`) e um fallback (`*_tail`). Ambos foram verificados, nesta versão, com **exatamente 1 ocorrência** na `.text` da imagem em memória. Verificação offline: `tools/re/scan.py` sobre o dump. Verificação em tempo de execução: as linhas `scan …: 1 match(es)` no `GTAV.FirstPersonExtended.log`.
+Validado em **GTA V Enhanced 1.0.1158.16** (esta seção e as seguintes) e em **GTA V Legacy 1.0.3889.0** (seção própria no fim). Cada ponto tem um padrão primário (`*_full`) e um fallback (`*_tail`). Ambos foram verificados, nesta versão, com **exatamente 1 ocorrência** na `.text` da imagem em memória. Verificação offline: `tools/re/scan.py` sobre o dump. Verificação em tempo de execução: as linhas `scan …: 1 match(es)` no `GTAV.FirstPersonExtended.log`.
 
 Regras que valem para todos os pontos:
 - **Nenhum endereço ou offset fixo no código.** Os offsets de struct (metadados, campos da câmera) são lidos das próprias instruções encontradas.
@@ -118,3 +118,65 @@ Regras específicas:
 
 ### Teste de falha segura
 `make failtest` também corrompe `player_weapon_*`. Esperado no log (com `PlayerFov=1`): `scan player_weapon_full (corrupted on purpose): 0 match(es)`, `player FOV: a private viewport site was not found or did not validate; stays original` e nenhuma linha `player FOV: body patched`.
+
+## GTA V Legacy (1.0.3889.0)
+
+O mod detecta a edição pelo nome do executável (`GTA5.exe` = Legacy, `GTA5_Enhanced.exe` = Enhanced) e escreve no log, na primeira linha, `(Legacy)` ou `(Enhanced)`. O código do jogo é o mesmo nas duas edições, mas o Legacy foi compilado de outro jeito (MSVC, outros registradores e outra ordem de blocos). Por isso cada ponto tem padrões próprios com o sufixo `_legacy`, e os stubs mudam só os registradores e as instruções vizinhas. O comportamento final é igual. Todos os padrões abaixo foram validados no dump do Legacy com **exatamente 1 ocorrência** (o scanner do próprio mod, `tests/ScanDump.cpp`, roda sobre qualquer dump: ele lê a `.text` da tabela de seções). Também foram confirmados no log do jogo.
+
+Loader no Legacy: o `dinput8.dll` do Ultimate ASI Loader (o mesmo arquivo do `xinput1_4.dll`, renomeado).
+
+### FOV e FOV do jogador
+
+| Ponto | Padrões | Diferença em relação ao Enhanced |
+|---|---|---|
+| a pé (base) | `onfoot_fov_legacy_*` | a leitura do slider fica numa função pequena (`movd`, `cvtdq2ps`, `mulss 0.1`). O ponto é a carga de `max` na fórmula `min + (max − min)·t` do chamador |
+| mira, ADS, mira óptica, celular | `hipaim_fov_legacy_*`, `ads_fov_legacy_*`, `sight_store_legacy_*`, `state_fov_legacy_*` | o celular e o estado de FOV fixo usam um stub que salva e restaura `xmm0` na pilha |
+| veículo, tipo, near clips | `vehicle_fov_legacy_*`, `vehicle_type_check_legacy_*`, `vehicle_nearclip_legacy_*`, `camera_nearclip_legacy_*` | o FOV do veículo é recarregado numa transição logo depois do clamp. O mesmo ajuste é aplicado também ali (`vehicle transition` no log) |
+| FOV do jogador | `player_perspective_legacy_*`, `player_body_legacy_*`, `player_weapon_legacy_*` | a projeção não tem as duas matrizes do Enhanced: o viewport tem FOV, aspect, near, far e flag de perspectiva, e é montado por `Perspective(vp, fovY, aspect, near, far)`. O stub chama essa função na cópia privada |
+
+### Disparada na diagonal
+
+As mesmas quatro decisões do Enhanced, na mesma ordem. Funções equivalentes, conferidas lado a lado:
+- despachante do movimento: Enhanced `0x18bf6e0`, Legacy `0xb09db8`;
+- veto lateral: Enhanced `0xd87300`, Legacy `0x72dd80`;
+- movimento com disparada: Enhanced `0x18c1b90`, Legacy `0xafa65c`.
+
+| Patch | Padrões | O que localiza no Legacy |
+|---|---|---|
+| 1. Rampa | `diagonal_ramp_legacy_*` | o bloco de 16 bytes que grava `noLateralInput = !(esquerda \|\| direita)` em `r15b` (`test bl,bl ; jne ; test al,al ; jne ; mov r15b,1 ; jmp ; xor r15b,r15b`). O stub reescreve a **própria flag** (`r15b \|= isDown(MOVE_UP_ONLY)`), porque o jogo a lê **três vezes** depois: na rampa, na escolha entre corrida e disparada e na manutenção da disparada |
+| 1b. Leitor de botão | `control_check_legacy_left` / `_right` | o segundo dos três testes de tecla (`getControl`, `isDown`, limiar 0,5). Os três endereços saem da sequência, e o limiar é conferido (= 0,5) |
+| 2. Entrada | `diagonal_input_legacy_*` | `cmp byte [rax+disp],r12b ; je forçaFrente`. Antes do patch, o mod confere que o destino do salto é `movaps xmm15,xmm7 ; movaps xmm14,xmm12` (lateral 0, frente 1). Isso garante que `xmm14` é a entrada para a frente |
+| 3. Direção | `diagonal_heading_legacy_*` | `test dil,dil ; je pula` (salto longo). A flag `diagonalSprinting` usa `xmm15` (lateral) |
+| 4. Passos | `diagonal_steps_legacy_*`, `diagonal_steps_legacy_player` | `comiss xmm6,[r12] ; jbe` (11 bytes). Teste de jogador: `mov rdx,[rbx+ped] … mov al,[rdx+flags] ; test al,1 ; jne ; test al,2 ; je`. O stub usa `rax` (aqui `rcx` está em uso) |
+
+**Lição registrada:** o bit 6 de `[ped+0x5e0]`, que o despachante testa para escolher o movimento sem disparada, **não** precisa de patch. Ele só reflete o veto: com a flag `noLateralInput` corrigida nos três usos, o jogo não liga mais esse bit nas diagonais. As primeiras tentativas no Legacy alteravam só o primeiro uso da flag, ou ignoravam o bit no despachante. Ignorar o bit fazia o S andar para a frente.
+
+### Teste de falha segura no Legacy
+
+`make failtest` corrompe também `diagonal_heading_legacy_*`. Resultado medido em 01/11/2026: `scan diagonal_heading_legacy_full (corrupted on purpose): 0 match(es)` (idem `_tail`), `diagonal sprint: a site was not found or did not validate; stays original`, FOV funcionando e nenhum crash.
+
+## Recarga olhando pela mira (FOV do jogador)
+
+Problema: recarregar segurando o botão de mirar mantém a câmera no estado "olhando pela mira". O sinal da mira continuava ativo, e o corpo e a arma ficavam com o FOV estreito da mira: a animação de recarga aparecia com zoom.
+
+Correção, em duas partes:
+1. **Sinal de recarga (stub `sight`, thread do jogo).** O stub segue os ponteiros do próprio jogo: câmera → personagem → gerente de armas → objeto da arma → arma. Enquanto o estado da arma for "recarregando", ele conta um sinal próprio (`SightReloading`) no lugar do sinal da mira. Também grava a câmera e o objeto da arma para a parte 2.
+2. **Volta à mira (`PlayerFov`, thread de render).** Cada recarga abre um episódio, durante o qual o FOV da mira fica desligado. O fim do estado "recarregando" não serve como critério sozinho. Medido com `make sprintprobe` (gravação da posição da arma em relação à câmera a cada 33 ms), o estado termina de 0,5 s a 1,1 s antes de a arma voltar à mira, conforme a arma. Uma recarga interrompida por rolagem pode ainda deixar o estado ligado com a arma já na mira. O episódio termina:
+   - quando a arma volta a menos de 1,5 cm do lugar que ocupava na mira (aprendido enquanto se olha pela mira, só com a arma parada: menos de 1 cm em 0,15 s), depois que o estado terminou;
+   - ou quando a arma assenta (parada) depois do fim do estado, mesmo sem lugar aprendido;
+   - ou se a arma não sai da mira em 0,4 s, ou fica nela 0,4 s com o estado ligado (estado preso);
+   - no máximo 3 s depois do fim do estado. Sem a posição da arma, vale um atraso fixo de 0,4 s.
+
+   O log registra uma linha por recarga com o motivo (`weapon back at the sight`, `weapon settled`, `weapon never left the sight`, `stale reload state…`, `time limit…`).
+
+| Ponto | Padrões (Enhanced / Legacy) | O que localiza | Validação |
+|---|---|---|---|
+| Personagem da câmera | `aim_ped_*` / `aim_ped_legacy_*` | prólogo da câmera de mira: `and byte [rcx+flags],0xDF ; mov ped,[rcx+X]` | `mov r64,[rcx+disp32]`; o fallback é único dentro da função da câmera de mira (a mesma do ponto `sight`, via `RtlLookupFunctionEntry`) |
+| Gerente de armas e getter | `aim_weapon_*` / `aim_weapon_legacy_*` | `mov r,[ped+Y] ; test ; je ; mov rcx,r ; call getter` | a base é o registrador do personagem; o getter é conferido pelo formato do seu caminho rápido (`mov rax,[rcx+o] ; … mov r,[rax+w]`), de onde saem os offsets do objeto e da arma |
+| Estado da arma | `weapon_reload_state_*` / `weapon_reload_state_legacy_*` | `cmp byte [rcx+S],RELOADING` do atualizador do estado de recarga (Legacy também tem a gravação `mov byte [rcx+S],3`) | o valor "recarregando" é o imediato da comparação; nos padrões completos, a gravação no mesmo campo é conferida |
+| Posição e direção da câmera | `camera_frame_*` / `camera_frame_legacy_*` | fim do update da câmera a pé: `lea …,[cam+pos]` e `[cam+forward]` passados a um callback | mesma função que a do ponto abaixo; o campo de posição tem que ser o mesmo nos dois |
+| Posição de entidade | `entity_position_*` / `entity_position_legacy_*` | `movaps …,[cam+pos] ; … subps …,[entity+P]` (posição da câmera em relação à entidade presa) | offsets alinhados a 16 |
+
+Valores atuais, iguais nas duas edições exceto o estado: personagem `+0x210`, armas `+0x10b8`, objeto `+0x78`, arma `+0x320`, estado `+0x200` (Enhanced) / `+0x1f0` (Legacy) `== 2`, câmera posição `+0x60` e frente `+0x40`, entidade `+0x90`. Como o mod lê esses ponteiros do jogo a partir da thread de render, usa `ReadProcessMemory`: um ponteiro velho só faz a leitura falhar, sem travar o jogo.
+
+**Falha segura:** `make failtest` corrompe `weapon_reload_state_*` nas duas edições. Medido no Enhanced: `0 match(es)`, `FOV sight: reload check not found; aiming while reloading keeps the sight FOV`, resto aplicado, sem crash. Sem os padrões de posição, a volta usa o atraso fixo e o log diz `weapon pose not found`.
