@@ -1,7 +1,5 @@
 # GTAV.FirstPersonExtended: first-person FOV up to 120° (GTA V Enhanced and Legacy)
 
-[Versão em português](README.pt-BR.md)
-
 Extends the game's **native** first-person field-of-view slider (Settings > Camera) up to **120° horizontal**. The slider minimum and its linear mapping stay as in the game, and the position is still saved by the game itself.
 
 The same proportion applies to:
@@ -55,7 +53,7 @@ Delete `GTAV.FirstPersonExtended.asi`, `GTAV.FirstPersonExtended.ini` and `GTAV.
 ## Troubleshooting
 The mod writes `GTAV.FirstPersonExtended.log` to the game folder on every start. Check it:
 - **The first line shows the mod and game versions.** If nothing is written, the loader is not loading the `.asi`. Make sure exactly one loader is installed.
-- **Every feature logs `scan …: 1 match(es)` and `patched at …`.** After a Rockstar update a feature may show `not found; stays original`. Only that feature is turned off, the game runs normally, and the patterns need to be regenerated (see `docs/patterns.md`, in Portuguese).
+- **Every feature logs `scan …: 1 match(es)` and `patched at …`.** After a Rockstar update a feature may show `not found; stays original`. Only that feature is turned off, the game runs normally, and the patterns need to be regenerated (see `docs/patterns.md`).
 - **`FOV feature disabled`** means the main spot (on-foot FOV) was not found. The mod changes nothing then.
 - **Crash or odd behavior:** remove the `.asi` to confirm the cause, and send the `GTAV.FirstPersonExtended.log`.
 
