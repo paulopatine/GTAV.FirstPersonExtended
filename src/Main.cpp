@@ -6,13 +6,15 @@
 #include "FootstepProbe.h"
 #include "GameImage.h"
 #include "Log.h"
+#include "PlayerFov.h"
 #include "Settings.h"
 #include "SprintGateProbe.h"
 #include "SprintProbe.h"
+#include "ViewmodelProbe.h"
 
 namespace {
 
-constexpr const char* kModVersion = "1.1.0";
+constexpr const char* kModVersion = "1.2.0";
 constexpr unsigned kDecryptTimeoutSeconds = 300;
 
 DWORD WINAPI Start(LPVOID) {
@@ -26,6 +28,14 @@ DWORD WINAPI Start(LPVOID) {
     Log::Info("game code decrypted (%zu bytes)", GameImage::Code().size());
     const auto settings = Settings::Load();
     bool fovApplied = FieldOfView::Apply(float(settings.maxHorizontalFovDegrees), settings.universalFov);
+    // Undoes the slider's widening for the player only, so it needs the FOV feature. UniversalFov
+    // widens the sight too, so then it is always on while looking through the sight.
+    if ((settings.playerFov || settings.universalFov) && fovApplied)
+        PlayerFov::Apply(/*everyCamera=*/settings.playerFov);
+    else if (settings.playerFov || settings.universalFov)
+        Log::Info("player FOV: needs the FOV feature, which is disabled; stays original");
+    else
+        Log::Info("player FOV: disabled by GTAV.FirstPersonExtended.ini");
     if (settings.diagonalSprint)
         DiagonalSprint::Apply();
     else
@@ -41,6 +51,9 @@ DWORD WINAPI Start(LPVOID) {
 #endif
 #ifdef FPFIX_SPRINT_PROBE
     SprintProbe::Install();
+#endif
+#ifdef FPFIX_VIEWMODEL_PROBE
+    ViewmodelProbe::Install();
 #endif
     if (fovApplied) FieldOfView::Track();
     return 0;

@@ -41,7 +41,8 @@ Next to the `.asi`. Without the file, or with invalid values (logged), the defau
 |---|---|---|---|
 | `MaxFov` | whole number, 60 to 140 | 120 | Top of the first-person FOV slider, in **horizontal** degrees. The minimum is the game's. |
 | `DiagonalSprint` | 0 or 1 | 1 | 1: W+A / W+D keep sprinting. 0: original game behavior. |
-| `UniversalFov` | 0 or 1 | 0 | 1: hip aim and aim down sights (also through the weapon's sights) use exactly the slider's FOV (at most `MaxFov`) instead of scaling their own. The phone and vehicle cameras stay proportional; sniper scopes stay native. 0: every camera keeps its own FOV, widened in proportion. |
+| `UniversalFov` | 0 or 1 | 0 | 1: hip aim and aim down sights (also through the weapon's sights) use exactly the slider's FOV (at most `MaxFov`) instead of scaling their own. The phone and vehicle cameras stay proportional; sniper scopes stay native. With 1, while looking through the weapon's sight, the body and the weapon use the original FOV (like `PlayerFov`, for that camera only), so the sights stay aligned without the weapon shrinking. 0: every camera keeps its own FOV, widened in proportion. |
+| `PlayerFov` | 0 or 1 | 0 | Experimental. 1: in first person, the character's body and the weapon in the hands use the FOV the same camera had in the original game (arms and weapon at their original size); the world keeps the slider's FOV. Not inside vehicles. The character's and the weapon's shadows do not follow the larger size (known effect). Needs the mod's FOV feature. 0: body and weapon use the world's FOV (except while looking through the sight with `UniversalFov=1`). |
 
 ## Uninstall
 Delete `GTAV.FirstPersonExtended.asi`, `GTAV.FirstPersonExtended.ini` and `GTAV.FirstPersonExtended.log` from the game folder. If you use no other `.asi` mods, delete the loader too. The mod does not change any original game file.
@@ -59,7 +60,7 @@ No hooking library and no ScriptHookV: a plain `.asi` that finds each spot in th
 ## Build (developers)
 Cross-compiled on Linux with mingw-w64:
 - `make`: release build;
-- `make probe`, `make sprintprobe`, `make gateprobe`, `make footstepprobe`: diagnostic builds used to find the spots (not distributed);
+- `make probe`, `make sprintprobe`, `make gateprobe`, `make footstepprobe`, `make vmprobe`: diagnostic builds used to find the spots (not distributed);
 - `make failtest`: safe-failure test build (signatures corrupted on purpose);
 - `make dumper`: dumps the decrypted game image for offline analysis.
 

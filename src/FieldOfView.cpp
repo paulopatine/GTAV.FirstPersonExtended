@@ -190,6 +190,8 @@ struct Shared {
     const std::uint8_t* volatile footMeta;  // written by the on-foot stub: camera metadata
     volatile float nearClipCap;             // read by the near-clip stubs
     volatile float chosenFov;               // universal mode: on-foot FOV for the slider; 0 = unknown
+    volatile std::uint32_t heartbeats[2];   // bumped by the vehicle / sight stubs on every update
+    volatile float sightGameFov;            // the game's own sight FOV, before our adjustment
 };
 static_assert(sizeof(Shared) <= CodeBlock::kDataSize);
 
@@ -251,6 +253,7 @@ std::span<const std::uint8_t> Original(const std::uint8_t* site, int length = kM
 float g_maxHorizontalFovDegrees = 0;  // from the ini, set by Apply()
 bool g_universal = false;             // from the ini, set by Apply()
 std::int32_t g_cameraTargetFovOffset = -1;  // camera field the hip-aim lerp stores into
+bool g_heartbeatTracked[2] = {};            // the stub of that camera counts its updates
 
 bool PatchOnFoot() {
     auto* load = FindSite(kOnFootSignatures, [](const std::uint8_t* p) {
@@ -274,6 +277,13 @@ bool PatchOnFoot() {
     Log::Info("FOV on foot: patched at exe+0x%zx (metadata min +0x%x, max +0x%x)",
               ExeOffset(load), g_minFovOffset, g_maxFovOffset);
     return true;
+}
+
+// Counts one update of `beat`'s camera, for other features (see FieldOfView::Heartbeat); flags kept.
+void EmitHeartbeat(FieldOfView::Heartbeat beat) {
+    g_block.Emit({0x9C, 0xF0, 0xFF, 0x05});  // pushfq; lock inc dword [rip+counter]
+    g_block.EmitRip32(const_cast<std::uint32_t*>(&g_shared->heartbeats[int(beat)]));
+    g_block.Emit({0x9D});  // popfq
 }
 
 // Makes the FOV held in xmmN follow the slider: scaled by the slider's widening or, in universal
@@ -336,7 +346,25 @@ void PatchSight() {
                g_cameraTargetFovOffset >= 0 && storeOffset == g_cameraTargetFovOffset;
     });
     auto* store = check ? const_cast<std::uint8_t*>(Pattern::ResolveRip(check + 7, 2, 6)) : nullptr;
-    PatchScaled("sight", store, /*scaleBefore=*/true, /*aiming=*/true);
+    if (!store) {
+        Log::Info("FOV sight: not found; stays original");
+        return;
+    }
+    // Before our adjustment the register holds the game's own sight FOV: keep it for the player
+    // FOV feature (the weapon then looks as in the original game), and count the update.
+    const auto* stub = g_block.Cursor();
+    g_block.Emit({0xF3, 0x0F, 0x11, RipModrm(Reg(store[3]))});  // movss [rip+sightGameFov], xmmN
+    g_block.EmitRip32(const_cast<float*>(&g_shared->sightGameFov));
+    EmitFovAdjust(Reg(store[3]), /*aiming=*/true);
+    g_block.Emit(Original(store));
+    EmitHeartbeat(FieldOfView::Heartbeat::SightCamera);
+    g_block.EmitJmp(store + kMovssLength);
+    if (CodePatch::JumpToStub(store, Original(store), stub)) {
+        g_heartbeatTracked[int(FieldOfView::Heartbeat::SightCamera)] = true;
+        Log::Info("FOV sight: patched at exe+0x%zx", ExeOffset(store));
+    } else {
+        Log::Info("FOV sight: patch refused; stays original");
+    }
 }
 
 void PatchStateFov() {
@@ -382,9 +410,12 @@ void PatchVehicle() {
     const auto* stub = g_block.Cursor();
     g_block.Emit(Original(load));
     EmitFovAdjust(Reg(load[3]), /*aiming=*/false);
+    EmitHeartbeat(FieldOfView::Heartbeat::VehicleCamera);
     g_block.EmitJmp(load + kMovssLength);
-    if (CodePatch::JumpToStub(load, Original(load), stub))
+    if (CodePatch::JumpToStub(load, Original(load), stub)) {
+        g_heartbeatTracked[int(FieldOfView::Heartbeat::VehicleCamera)] = true;
         Log::Info("FOV vehicle: patched at exe+0x%zx", ExeOffset(load));
+    }
     else
         Log::Info("FOV vehicle: patch refused; vehicle FOV stays original");
 }
@@ -591,6 +622,14 @@ bool FieldOfView::Apply(float maxHorizontalDegrees, bool universal) {
 }
 
 int FieldOfView::FrameFovOffset() { return g_frameFovOffset; }
+
+float FieldOfView::SliderWidening() { return g_shared ? g_shared->scale : 1.0f; }
+
+bool FieldOfView::Tracked(Heartbeat beat) { return g_heartbeatTracked[int(beat)]; }
+
+std::uint32_t FieldOfView::Updates(Heartbeat beat) { return g_shared ? g_shared->heartbeats[int(beat)] : 0; }
+
+float FieldOfView::SightGameFov() { return g_shared ? g_shared->sightGameFov : 0.0f; }
 
 
 void FieldOfView::Track() {

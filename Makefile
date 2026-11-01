@@ -30,6 +30,11 @@ footstepprobe: $(SRC) $(wildcard src/*.h)
 	@mkdir -p build
 	$(CXX) $(CXXFLAGS) -DFPFIX_FOOTSTEP_PROBE $(SRC) -o build/GTAV.FirstPersonExtended_footstepprobe.asi $(LDFLAGS) $(LDLIBS)
 
+# Diagnostic build that logs which code draws near the camera in each render viewport (never shipped).
+vmprobe: $(SRC) $(wildcard src/*.h)
+	@mkdir -p build
+	$(CXX) $(CXXFLAGS) -DFPFIX_VIEWMODEL_PROBE $(SRC) -o build/GTAV.FirstPersonExtended_vmprobe.asi $(LDFLAGS) $(LDLIBS)
+
 # Test build with the ADS signatures corrupted on purpose (proves safe failure; never shipped).
 failtest: $(SRC) $(wildcard src/*.h)
 	@mkdir -p build
@@ -43,4 +48,4 @@ dumper: tools/image_dump/ImageDump.cpp
 clean:
 	rm -rf build
 
-.PHONY: clean probe sprintprobe gateprobe footstepprobe failtest dumper
+.PHONY: clean probe sprintprobe gateprobe footstepprobe vmprobe failtest dumper

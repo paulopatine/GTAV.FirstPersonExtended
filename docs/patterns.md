@@ -88,3 +88,33 @@ No jogo: W+A+Shift volta a **correr** (não dispara), como no original; FOV e o 
 - todos os outros pontos aplicados normalmente, sem crash.
 
 No jogo, o ADS volta ao FOV nativo e o resto continua funcionando.
+
+## FOV do jogador (`PlayerFov`, experimental)
+
+Implementado em `src/PlayerFov.cpp`, opcional (`PlayerFov=1`) e dependente do FOV a pé. Em primeira pessoa, o jogo desenha o corpo (comando de draw list 0x84) e a arma nas mãos (comando 0x82) com uma **cópia privada do viewport**: copia o viewport atual, faz `SetCameraMtx(cópia, …)` (câmera relativa), `SetCurrent(cópia, regenerar)`, desenha e restaura. O mod desvia as duas chamadas `SetCameraMtx` para um stub. O stub divide os dois campos de FOV **da cópia** pela ampliação do slider (a mesma escala do resto do mod) e chama o construtor de projeção do próprio jogo. O viewport compartilhado, o mundo, as sombras, os reflexos e a terceira pessoa não passam por aí. Estudo completo: `docs/viewmodel-study.md`.
+
+| Ponto | Padrões | O que localiza | Âncoras semânticas (validação) |
+|---|---|---|---|
+| Construtor de projeção | `player_projection_full` / `_tail` | `mov rsi,rcx` do construtor das duas matrizes de projeção do viewport | carrega a constante π/360 (0,00872665); dele saem os offsets de aspect, FOV e segundo FOV (`mulss xmm8,[rsi+…]`, única ocorrência); o início da função (via `.pdata`) fica a menos de 0x80 bytes |
+| Corpo FPV | `player_body_full` / `_tail` | `call SetCameraMtx` sobre a cópia privada do desenho do ped | alvo é início de função; 13 bytes adiante, `call SetCurrent`; ambos iguais aos do ponto da arma |
+| Arma FPV | `player_weapon_full` / `_tail` | `call SetCameraMtx` sobre a cópia privada do executor de objetos | idem |
+
+Regras específicas:
+- **Corpo e arma juntos ou nenhum.** Se a arma falhar depois do corpo aplicado, o corpo é restaurado.
+- A arma só é ajustada se o corpo FPV foi desenhado há menos de 250 ms. Isso exclui a terceira pessoa, onde o corpo nunca passa por esse caminho (medido com `make vmprobe`).
+- Viewports quadrados (aspect 1: cubemaps, reflexos) e FOVs fora de (1°, 130°) ficam intactos.
+- **Veículos:** o stub do FOV de veículo conta cada update da câmera de primeira pessoa em veículo (`lock inc`, flags preservadas). Enquanto essa contagem muda (últimos 250 ms), o jogador fica com o FOV do mundo. Sem esse ponto, o `PlayerFov` não é aplicado.
+- **Só olhando pela mira:** com `UniversalFov=1` e `PlayerFov=0`, o stub `sight` conta seus updates do mesmo jeito, e o FOV do jogador só vale enquanto essa contagem muda. Sem o ponto `sight`, esse modo não é aplicado.
+- O log mostra cada transição: `player FOV: on (looking through the sight)`, `player FOV: off`.
+- **FOV alvo:** olhando pela mira, o FOV da própria mira, como o jogo o definiu. O stub `sight` grava o registro antes de ajustá-lo, então o resultado é igual ao vanilla. Nas outras câmeras, o FOV da câmera dividido pela ampliação do slider.
+- **Transição suave:** suaviza-se a diferença entre o FOV do mundo e o do jogador, com uma mola criticamente amortecida (`kSmoothSeconds` = 0,08 s, assenta em ~0,25 s, sem overshoot), compartilhada por todas as threads de render. Desligado, a diferença é 0 e o jogador segue o mundo exatamente. O sinal da mira fica ativo por 100 ms depois do último update (`kCameraRecentMs`); medido: sem falhas enquanto se olha pela mira.
+
+### Como regenerar após um update
+1. Dump (`make dumper`) e `tools/re/relib.py`.
+2. **Construtor:** o único leitor de π/360 que monta duas projeções. Chamadores de `tanf` com `mulss …,[rip+π/360]`; ele começa com `cmp byte [rcx+flagZ],0` e lê near, far, aspect e FOV.
+3. **`SetCurrent`:** grava o viewport em `TLS+…` (o mesmo campo que `SetWorldMtx` compara) e, se pedido, regenera. **`SetCameraMtx`:** termina chamando a composição view·proj e a regeneração.
+4. **Pontos do corpo e da arma:** entre os chamadores de `SetCameraMtx`, os dois seguidos de `mov rcx,<cópia>; mov dl,1; xor r8d,r8d; call SetCurrent` em funções de desenho. O do ped testa um bit dos dados de desenho (`0x80000`) e o de objetos outro (`0x40`). Para confirmar no jogo, use `make vmprobe` (instrumenta a tabela de executores de draw list e o teste do bit `0x40`).
+5. Valide com `tools/re/scan.py` (exatamente 1 ocorrência cada), instale com hash conferido e leia o log (`player FOV: body patched…`, `first body/weapon draw narrowed…`).
+
+### Teste de falha segura
+`make failtest` também corrompe `player_weapon_*`. Esperado no log (com `PlayerFov=1`): `scan player_weapon_full (corrupted on purpose): 0 match(es)`, `player FOV: a private viewport site was not found or did not validate; stays original` e nenhuma linha `player FOV: body patched`.

@@ -38,8 +38,11 @@ Settings::Values Settings::Load() {
         values.universalFov = ReadInt(
             path.c_str(), L"UniversalFov", values.universalFov,
             [](int v) { return v == 0 || v == 1; }, "0 or 1") != 0;
+        values.playerFov = ReadInt(
+            path.c_str(), L"PlayerFov", values.playerFov,
+            [](int v) { return v == 0 || v == 1; }, "0 or 1") != 0;
     }
-    Log::Info("ini: MaxFov=%d DiagonalSprint=%d UniversalFov=%d", values.maxHorizontalFovDegrees,
-              values.diagonalSprint ? 1 : 0, values.universalFov ? 1 : 0);
+    Log::Info("ini: MaxFov=%d DiagonalSprint=%d UniversalFov=%d PlayerFov=%d", values.maxHorizontalFovDegrees,
+              values.diagonalSprint ? 1 : 0, values.universalFov ? 1 : 0, values.playerFov ? 1 : 0);
     return values;
 }
