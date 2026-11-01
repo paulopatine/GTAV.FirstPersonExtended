@@ -35,8 +35,11 @@ Settings::Values Settings::Load() {
         values.diagonalSprint = ReadInt(
             path.c_str(), L"DiagonalSprint", values.diagonalSprint,
             [](int v) { return v == 0 || v == 1; }, "0 or 1") != 0;
+        values.universalFov = ReadInt(
+            path.c_str(), L"UniversalFov", values.universalFov,
+            [](int v) { return v == 0 || v == 1; }, "0 or 1") != 0;
     }
-    Log::Info("ini: MaxFov=%d DiagonalSprint=%d", values.maxHorizontalFovDegrees,
-              values.diagonalSprint ? 1 : 0);
+    Log::Info("ini: MaxFov=%d DiagonalSprint=%d UniversalFov=%d", values.maxHorizontalFovDegrees,
+              values.diagonalSprint ? 1 : 0, values.universalFov ? 1 : 0);
     return values;
 }

@@ -12,7 +12,7 @@
 
 namespace {
 
-constexpr const char* kModVersion = "1.0.0";
+constexpr const char* kModVersion = "1.1.0";
 constexpr unsigned kDecryptTimeoutSeconds = 300;
 
 DWORD WINAPI Start(LPVOID) {
@@ -25,7 +25,7 @@ DWORD WINAPI Start(LPVOID) {
     }
     Log::Info("game code decrypted (%zu bytes)", GameImage::Code().size());
     const auto settings = Settings::Load();
-    bool fovApplied = FieldOfView::Apply(float(settings.maxHorizontalFovDegrees));
+    bool fovApplied = FieldOfView::Apply(float(settings.maxHorizontalFovDegrees), settings.universalFov);
     if (settings.diagonalSprint)
         DiagonalSprint::Apply();
     else

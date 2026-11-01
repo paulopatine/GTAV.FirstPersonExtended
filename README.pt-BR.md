@@ -41,6 +41,7 @@ Ao lado do `.asi`. Sem o arquivo, ou com valores inválidos (registrados no log)
 |---|---|---|---|
 | `MaxFov` | inteiro de 60 a 140 | 120 | Máximo do slider de FOV de primeira pessoa, em graus **horizontais**. O mínimo é o do jogo. |
 | `DiagonalSprint` | 0 ou 1 | 1 | 1: W+A / W+D mantêm a disparada. 0: comportamento original. |
+| `UniversalFov` | 0 ou 1 | 0 | 1: mira sem olhar pela mira e ADS (também olhando pela mira da arma) usam exatamente o FOV do slider (no máximo `MaxFov`), em vez de ampliar o próprio. Celular e veículos continuam proporcionais; lunetas de sniper continuam nativas. 0: cada câmera mantém o seu FOV, ampliado na mesma proporção. |
 
 ## Desinstalação
 Apague `GTAV.FirstPersonExtended.asi`, `GTAV.FirstPersonExtended.ini` e `GTAV.FirstPersonExtended.log` da pasta do jogo. Se não usar outros mods `.asi`, apague também o loader. O mod não altera nenhum arquivo original do jogo.

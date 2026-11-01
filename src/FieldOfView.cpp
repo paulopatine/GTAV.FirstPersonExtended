@@ -11,10 +11,16 @@
 // slider now widens the on-foot view at the same position: scale = fovNew(t) / fovOriginal(t).
 // Sniper scopes use their own camera and stay native. The wider view also needs a closer
 // near plane (see "Near clip" below).
+//
+// Optional "universal" mode: the aiming cameras (hip aim and aim down sights, with or without
+// looking through the sight) do not scale their own FOV, they use the FOV the slider gives on
+// foot (the stub replaces the value instead of multiplying it). The phone and vehicles keep the
+// proportional scale.
 #include "FieldOfView.h"
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <numbers>
@@ -183,6 +189,7 @@ struct Shared {
     volatile float scale;                   // read by the aim and vehicle stubs
     const std::uint8_t* volatile footMeta;  // written by the on-foot stub: camera metadata
     volatile float nearClipCap;             // read by the near-clip stubs
+    volatile float chosenFov;               // universal mode: on-foot FOV for the slider; 0 = unknown
 };
 static_assert(sizeof(Shared) <= CodeBlock::kDataSize);
 
@@ -242,6 +249,7 @@ std::span<const std::uint8_t> Original(const std::uint8_t* site, int length = kM
 }
 
 float g_maxHorizontalFovDegrees = 0;  // from the ini, set by Apply()
+bool g_universal = false;             // from the ini, set by Apply()
 std::int32_t g_cameraTargetFovOffset = -1;  // camera field the hip-aim lerp stores into
 
 bool PatchOnFoot() {
@@ -268,24 +276,42 @@ bool PatchOnFoot() {
     return true;
 }
 
-// Stub: `mulss xmmN, scale` around the original movss (after a load, before a store).
-const std::uint8_t* EmitScaled(const std::uint8_t* site, bool scaleBefore, int length) {
+// Makes the FOV held in xmmN follow the slider: scaled by the slider's widening or, in universal
+// mode and for `aiming` cameras, replaced by the on-foot FOV (kept as the game computed it while
+// that is still unknown).
+void EmitFovAdjust(int reg, bool aiming) {
+    if (!(g_universal && aiming)) {
+        g_block.Emit({0xF3, 0x0F, 0x59, RipModrm(reg)});  // mulss xmmN, scale
+        g_block.EmitRip32(const_cast<float*>(&g_shared->scale));
+        return;
+    }
+    g_block.Emit({0x9C, 0x83, 0x3D});  // pushfq; cmp dword [rip+chosenFov], 0 (trailing imm8)
+    g_block.EmitRip32(reinterpret_cast<const std::uint8_t*>(const_cast<float*>(&g_shared->chosenFov)) - 1);
+    g_block.Emit({0x00});
+    auto* unknown = g_block.EmitBranch({0x0F, 0x84});  // je unknown
+    g_block.Emit({0xF3, 0x0F, 0x10, RipModrm(reg)});  // movss xmmN, chosenFov
+    g_block.EmitRip32(const_cast<float*>(&g_shared->chosenFov));
+    g_block.Bind(unknown);
+    g_block.Emit({0x9D});  // popfq
+}
+
+// Stub: FOV adjustment around the original movss (after a load, before a store).
+const std::uint8_t* EmitScaled(const std::uint8_t* site, bool scaleBefore, int length, bool aiming) {
     const auto* stub = g_block.Cursor();
     if (!scaleBefore) g_block.Emit(Original(site, length));
-    g_block.Emit({0xF3, 0x0F, 0x59, RipModrm(Reg(site[3]))});
-    g_block.EmitRip32(const_cast<float*>(&g_shared->scale));
+    EmitFovAdjust(Reg(site[3]), aiming);
     if (scaleBefore) g_block.Emit(Original(site, length));
     g_block.EmitJmp(site + length);
     return stub;
 }
 
-void PatchScaled(const char* what, std::uint8_t* site, bool scaleBefore,
+void PatchScaled(const char* what, std::uint8_t* site, bool scaleBefore, bool aiming = false,
                  int length = kMovssLength) {
     if (!site) {
         Log::Info("FOV %s: not found; stays original", what);
         return;
     }
-    if (CodePatch::JumpToStub(site, Original(site, length), EmitScaled(site, scaleBefore, length)))
+    if (CodePatch::JumpToStub(site, Original(site, length), EmitScaled(site, scaleBefore, length, aiming)))
         Log::Info("FOV %s: patched at exe+0x%zx", what, ExeOffset(site));
     else
         Log::Info("FOV %s: patch refused; stays original", what);
@@ -296,7 +322,7 @@ void PatchHipAim() {
         return IsMovssDisp32(p, 0x11) && SliderReadBefore(p) == g_sliderPosition;
     });
     if (store) std::memcpy(&g_cameraTargetFovOffset, store + 4, 4);
-    PatchScaled("hip aim", store, /*scaleBefore=*/true);
+    PatchScaled("hip aim", store, /*scaleBefore=*/true, /*aiming=*/true);
 }
 
 void PatchSight() {
@@ -310,7 +336,7 @@ void PatchSight() {
                g_cameraTargetFovOffset >= 0 && storeOffset == g_cameraTargetFovOffset;
     });
     auto* store = check ? const_cast<std::uint8_t*>(Pattern::ResolveRip(check + 7, 2, 6)) : nullptr;
-    PatchScaled("sight", store, /*scaleBefore=*/true);
+    PatchScaled("sight", store, /*scaleBefore=*/true, /*aiming=*/true);
 }
 
 void PatchStateFov() {
@@ -331,7 +357,7 @@ void PatchAds() {
         return IsMovssDisp32(p, 0x10) && IsMovssDisp32(p + 8, 0x10) && p[16] == 0xF3 &&
                p[17] == 0x0F && p[18] == 0x5C && p[20] == 0xF3 && p[21] == 0x0F && p[22] == 0x59;
     });
-    PatchScaled("ADS", load, /*scaleBefore=*/false);
+    PatchScaled("ADS", load, /*scaleBefore=*/false, /*aiming=*/true);
 }
 
 constexpr float kFovClampMin = 1.0f, kFovClampMax = 130.0f;
@@ -355,8 +381,7 @@ void PatchVehicle() {
         std::memcpy(&g_frameFovOffset, store + 4, 4);
     const auto* stub = g_block.Cursor();
     g_block.Emit(Original(load));
-    g_block.Emit({0xF3, 0x0F, 0x59, RipModrm(Reg(load[3]))});  // mulss xmmN, scale
-    g_block.EmitRip32(const_cast<float*>(&g_shared->scale));
+    EmitFovAdjust(Reg(load[3]), /*aiming=*/false);
     g_block.EmitJmp(load + kMovssLength);
     if (CodePatch::JumpToStub(load, Original(load), stub))
         Log::Info("FOV vehicle: patched at exe+0x%zx", ExeOffset(load));
@@ -518,22 +543,27 @@ bool ReadAt(const std::uint8_t* base, int offset, T& out) {
     return true;
 }
 
-// fovNew(t) / fovOriginal(t); 1 until the on-foot camera has run once (metadata unknown).
-float SliderScale(float t, float& originalMax) {
+// The on-foot FOV at slider position t, as the game would give it (original) and with our
+// maximum (extended). False until the on-foot camera has run once (metadata unknown).
+// The on-foot FOV at slider position t, as the game would give it (original) and with our
+// maximum (extended). False until the on-foot camera has run once (metadata unknown).
+struct SliderFov { float originalMax, original, extended; };
+bool ReadSliderFov(float t, SliderFov& fov) {
     float minFov;
     if (!ReadAt(g_shared->footMeta, g_minFovOffset, minFov) ||
-        !ReadAt(g_shared->footMeta, g_maxFovOffset, originalMax) || !(minFov > 0) ||
-        !(originalMax >= minFov))
-        return 1.0f;
-    float original = minFov + (originalMax - minFov) * t;
-    float extended = minFov + (g_shared->maxVerticalFov - minFov) * t;
-    return extended / original;
+        !ReadAt(g_shared->footMeta, g_maxFovOffset, fov.originalMax) || !(minFov > 0) ||
+        !(fov.originalMax >= minFov))
+        return false;
+    fov.original = minFov + (fov.originalMax - minFov) * t;
+    fov.extended = minFov + (g_shared->maxVerticalFov - minFov) * t;
+    return true;
 }
 
 }  // namespace
 
-bool FieldOfView::Apply(float maxHorizontalDegrees) {
+bool FieldOfView::Apply(float maxHorizontalDegrees, bool universal) {
     g_maxHorizontalFovDegrees = maxHorizontalDegrees;
+    g_universal = universal;
     auto code = GameImage::Code();
     if (!g_block.Allocate(code.data())) {
         Log::Info("FOV: no memory within RIP reach; feature disabled, game untouched");
@@ -542,11 +572,14 @@ bool FieldOfView::Apply(float maxHorizontalDegrees) {
     g_shared = static_cast<Shared*>(g_block.Data());
     g_shared->maxVerticalFov = VerticalFromHorizontal(g_maxHorizontalFovDegrees, kFallbackAspectRatio);
     g_shared->scale = 1.0f;
+    g_shared->chosenFov = 0.0f;
     g_shared->nearClipCap = kNearClipCap;
     if (!PatchOnFoot()) {
         Log::Info("FOV: on-foot slider formula not found or refused; FOV feature disabled");
         return false;
     }
+    Log::Info("FOV: %s", g_universal ? "universal mode (hip aim, ADS and sights use the slider FOV)"
+                                       : "proportional mode (aim and vehicle cameras scale with the slider)");
     PatchHipAim();
     PatchAds();
     PatchSight();
@@ -559,8 +592,9 @@ bool FieldOfView::Apply(float maxHorizontalDegrees) {
 
 int FieldOfView::FrameFovOffset() { return g_frameFovOffset; }
 
+
 void FieldOfView::Track() {
-    float lastAspect = 0, lastScale = 0;
+    float lastAspect = 0, lastShown = 0;
     std::int32_t lastPosition = -1;
     for (;;) {
         float aspect = CurrentAspectRatio();
@@ -574,11 +608,18 @@ void FieldOfView::Track() {
             Log::Info("FOV: slider position %d/%.0f", position, kSliderSteps);
             lastPosition = position;
         }
-        float t = std::fmin(std::fmax(position / kSliderSteps, 0.0f), 1.0f), originalMax = 0;
-        g_shared->scale = SliderScale(t, originalMax);
-        if (std::fabs(g_shared->scale - lastScale) > 0.0005f) {
-            Log::Info("FOV: original max %.2f, aim/vehicle scale %.4f", originalMax, g_shared->scale);
-            lastScale = g_shared->scale;
+        float t = std::fmin(std::fmax(position / kSliderSteps, 0.0f), 1.0f);
+        SliderFov fov{};
+        bool known = ReadSliderFov(t, fov);
+        g_shared->scale = known ? fov.extended / fov.original : 1.0f;
+        g_shared->chosenFov = known && g_universal ? fov.extended : 0.0f;
+        float shown = g_universal ? g_shared->chosenFov : g_shared->scale;
+        if (std::fabs(shown - lastShown) > 0.0005f) {
+            if (g_universal)
+                Log::Info("FOV: original max %.2f, universal FOV %.2f deg vertical", fov.originalMax, shown);
+            else
+                Log::Info("FOV: original max %.2f, aim/vehicle scale %.4f", fov.originalMax, shown);
+            lastShown = shown;
         }
         Sleep(250);
     }
