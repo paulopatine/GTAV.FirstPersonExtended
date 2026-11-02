@@ -6,7 +6,8 @@ namespace Settings {
 struct Values {
     int maxHorizontalFovDegrees = 120;  // top of the native first-person FOV slider
     bool diagonalSprint = true;         // keep sprinting on W+A / W+D
-    bool universalFov = true;           // hip aim and ADS use the slider FOV
+    bool universalFov = false;          // hip aim and ADS use the slider FOV
+    bool adsFov = true;                 // weapon keeps its original FOV through the sight
     bool playerFov = false;             // first-person body and weapon keep the original FOV
 };
 

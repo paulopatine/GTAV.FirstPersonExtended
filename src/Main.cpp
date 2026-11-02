@@ -14,7 +14,7 @@
 
 namespace {
 
-constexpr const char* kModVersion = "1.1.0";
+constexpr const char* kModVersion = "1.1.1";
 constexpr unsigned kDecryptTimeoutSeconds = 300;
 
 DWORD WINAPI Start(LPVOID) {
@@ -29,11 +29,12 @@ DWORD WINAPI Start(LPVOID) {
     Log::Info("game code decrypted (%zu bytes)", GameImage::Code().size());
     const auto settings = Settings::Load();
     bool fovApplied = FieldOfView::Apply(float(settings.maxHorizontalFovDegrees), settings.universalFov);
-    // Undoes the slider's widening for the player only, so it needs the FOV feature. UniversalFov
-    // widens the sight too, so then it is always on while looking through the sight.
-    if ((settings.playerFov || settings.universalFov) && fovApplied)
+    // Undoes the slider's widening for the player only, so it needs the FOV feature. AdsFov keeps
+    // the weapon at its original size while looking through the sight, whatever the world's FOV.
+    const bool playerFovWanted = settings.playerFov || settings.adsFov;
+    if (playerFovWanted && fovApplied)
         PlayerFov::Apply(/*everyCamera=*/settings.playerFov);
-    else if (settings.playerFov || settings.universalFov)
+    else if (playerFovWanted)
         Log::Info("player FOV: needs the FOV feature, which is disabled; stays original");
     else
         Log::Info("player FOV: disabled by GTAV.FirstPersonExtended.ini");

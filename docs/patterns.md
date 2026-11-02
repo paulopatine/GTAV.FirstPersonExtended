@@ -104,7 +104,7 @@ Specific rules:
 - The weapon is adjusted only if the first-person body was drawn less than 250 ms ago. That excludes third person, where the body never goes through this path (measured with `make vmprobe`).
 - Square viewports (aspect 1: cubemaps, reflections) and FOVs outside (1°, 130°) are left untouched.
 - **Vehicles:** the vehicle FOV stub counts every update of the first-person vehicle camera (`lock inc`, flags preserved). While that count changes (last 250 ms), the player keeps the world's FOV. Without that spot, `PlayerFov` is not applied.
-- **Only through the sight:** with `UniversalFov=1` and `PlayerFov=0`, the `sight` stub counts its updates the same way, and the player FOV applies only while that count changes. Without the `sight` spot, this mode is not applied.
+- **Only through the sight:** with `AdsFov=1` and `PlayerFov=0`, the `sight` stub counts its updates the same way, and the player FOV applies only while that count changes. Without the `sight` spot, this mode is not applied.
 - The log shows every transition: `player FOV: on (looking through the sight)`, `player FOV: off`.
 - **Target FOV:** through the sight, the sight's own FOV as the game set it. The `sight` stub saves the register before adjusting it, so the result equals vanilla. For the other cameras, the camera FOV divided by the slider widening.
 - **Smooth transition:** the difference between the world FOV and the player FOV is smoothed with a critically damped spring (`kSmoothSeconds` = 0.08 s, settles in ~0.25 s, no overshoot), shared by all render threads. When off, the difference is 0 and the player follows the world exactly. The sight signal stays active for 100 ms after the last update (`kCameraRecentMs`); measured: no gaps while looking through the sight.

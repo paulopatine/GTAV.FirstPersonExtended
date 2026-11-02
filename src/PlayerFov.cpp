@@ -22,7 +22,7 @@
 // the vehicle, which is world), detected through the FOV feature's vehicle-camera heartbeat.
 //
 // Two scopes: every first-person camera (PlayerFov=1), or only while looking through the weapon's
-// sight (the default when UniversalFov=1: the sight then uses the wide slider FOV, and this keeps
+// sight (the default when AdsFov=1: the world then keeps the wide slider FOV, and this keeps
 // the weapon as in the original game so the sights stay aligned). Through the sight the player
 // gets the sight's own FOV as the game set it (kept by the FOV feature's sight stub); elsewhere,
 // the camera's FOV divided by the slider widening. The sight is detected through the FOV
@@ -498,6 +498,10 @@ extern "C" void PlayerFovOnPrivateViewport(std::uint8_t* viewport, int kind) {
     float offset = g_offset.Towards(fov - playerFov, NowSeconds());
     if (std::fabs(offset) < 0.01f) return;  // at the world's FOV: leave the copy as the game made it
     float narrowed = fov - offset;
+    // While the world's FOV is itself zooming (the sight with UniversalFov=0), the smoothed offset
+    // can pass the target and make the weapon bigger than it should be before it settles: never
+    // narrower than the player's FOV. Not when leaving the narrow state, which must ease out.
+    if (narrow && playerFov < fov) narrowed = std::fmax(narrowed, playerFov);
     if (!IsCameraFov(narrowed)) return;
     if (g_projection.perspective) {
         g_projection.perspective(viewport, narrowed, ReadFloat(viewport, g_projection.aspect),

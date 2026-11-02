@@ -50,9 +50,9 @@ Any missing pattern turns off only that feature, and the rest of the mod continu
 - **Vehicles:** the hands left the wheel and the handlebars, so the player FOV is turned off in vehicles (the mod's vehicle camera signal).
 - **Shadows:** misaligned (on the ground and on the weapon), as predicted. User's decision: leave it as is and document it.
 - **Feet when looking down:** hard to judge with the current vertical FOV. Considered fine.
-- **Scope (user's decision):** `PlayerFov=1` applies to every first-person camera. With `UniversalFov=1`, even with `PlayerFov=0`, it applies **while looking through the sight**, so the sights stay aligned without the weapon shrinking.
+- **Scope (user's decision):** `PlayerFov=1` applies to every first-person camera. With `AdsFov=1`, even with `PlayerFov=0`, it applies **while looking through the sight**, so the sights stay aligned without the weapon shrinking.
 - **Transition:** 0.25 s, smooth. Approved.
-- **Looking through the sight:** the player uses the sight's own FOV (vanilla, saved by the `sight` stub before the mod's adjustment). The weapon looks like vanilla, with the wide world. Approved by the user with `UniversalFov=1` (`PlayerFov=0`) and with `PlayerFov=1`. The transition between targets is smoothed (critically damped spring over the difference between the world FOV and the player FOV).
+- **Looking through the sight:** the player uses the sight's own FOV (vanilla, saved by the `sight` stub before the mod's adjustment). The weapon looks like vanilla, with the wide world. Approved by the user with `AdsFov=1` (`PlayerFov=0`) and with `PlayerFov=1`. The transition between targets is smoothed (critically damped spring over the difference between the world FOV and the player FOV).
 
 ## 6. Original recommendation
 Implement the **player projection in the two private viewports** (body and weapon), behind a new `.ini` option, off by default and fail-safe. Start without the ramps (pitch, cover, vehicle off by a simple rule) and evaluate in the game: sight alignment, hands on the weapon, lighting and feet.
